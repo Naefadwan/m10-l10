@@ -31,10 +31,15 @@ def assemble_prompt(question: str, chunks: list[dict]) -> Tuple[str, dict[int, d
 
     Returns (prompt_str, {citation_index: chunk_dict}).
     """
-    # TODO: walk the chunks list, build numbered source lines, and call
-    #       PROMPT_TEMPLATE.format(...). Return the prompt string and the
-    #       index→chunk mapping. Index starts at 1, not 0.
-    raise NotImplementedError
+    source_lines = []
+    numbered = {}
+    for i, chunk in enumerate(chunks, 1):
+        text = chunk.get("text", "")
+        source_lines.append(f"[{i}] {text}")
+        numbered[i] = chunk
+    sources_str = "\n".join(source_lines)
+    prompt_str = PROMPT_TEMPLATE.format(sources=sources_str, question=question)
+    return prompt_str, numbered
 
 
 def extract_citations(answer: str, numbered: dict[int, dict]) -> list[dict]:
@@ -44,10 +49,24 @@ def extract_citations(answer: str, numbered: dict[int, dict]) -> list[dict]:
     indices that are present in `numbered` are returned; duplicates are
     de-duplicated.
     """
-    # TODO: iterate CITATION_PATTERN.finditer(answer), look up each index
-    #       in `numbered`, and emit one {"chunk_id", "score"} dict per
-    #       unique index that maps to a real retrieved chunk.
-    raise NotImplementedError
+    markers = CITATION_PATTERN.findall(answer)
+    citations = []
+    seen_chunks = set()
+    for marker in markers:
+        idx = int(marker)
+        if idx in numbered:
+            chunk = numbered[idx]
+            chunk_id = chunk.get("chunk_id")
+            if chunk_id is not None and chunk_id not in seen_chunks:
+                seen_chunks.add(chunk_id)
+                additional = chunk.get("_additional") or {}
+                distance = additional.get("distance", 0.0)
+                score = max(0.0, min(1.0, 1.0 - distance))
+                citations.append({
+                    "chunk_id": chunk_id,
+                    "score": score
+                })
+    return citations
 
 
 def compose_rag(question: str, embedder, weaviate_client, generator, k: int = 4) -> dict:
@@ -63,15 +82,44 @@ def compose_rag(question: str, embedder, weaviate_client, generator, k: int = 4)
       confidence=0.0. (This is the "refuse rather than hallucinate"
       rule the autograder enforces.)
     """
-    # TODO:
-    # 1. Encode `question` with `embedder` and query Weaviate via
-    #    `with_near_vector` for top-k chunks (the Weaviate class is
-    #    `vectorizer=none`, so `with_near_text` would fail at runtime).
-    # 2. If retrieved == [], return the sentinel-shaped dict.
-    # 3. assemble_prompt(question, retrieved) → (prompt, numbered).
-    # 4. Run the generator with do_sample=False and max_new_tokens=256.
-    # 5. extract_citations(raw, numbered).
-    # 6. If no citations resolved → return the sentinel-shaped dict.
-    # 7. confidence = mean(citation scores), clipped to [0, 1].
-    # 8. Return {"answer": raw, "citations": citations, "confidence": confidence}.
-    raise NotImplementedError
+    vector = embedder.encode(question).tolist()
+
+    result = (
+        weaviate_client.query
+        .get("Chunk", ["text", "chunk_id"])
+        .with_near_vector({"vector": vector})
+        .with_additional(["distance"])
+        .with_limit(k)
+        .do()
+    )
+
+    chunks = result.get("data", {}).get("Get", {}).get("Chunk", [])
+    if not chunks:
+        return {
+            "answer": SENTINEL,
+            "citations": [],
+            "confidence": 0.0
+        }
+
+    prompt, numbered = assemble_prompt(question, chunks)
+
+    gen_outputs = generator(prompt, max_new_tokens=256, do_sample=False)
+    raw_answer = gen_outputs[0]["generated_text"]
+
+    citations = extract_citations(raw_answer, numbered)
+    if not citations:
+        return {
+            "answer": SENTINEL,
+            "citations": [],
+            "confidence": 0.0
+        }
+
+    scores = [c["score"] for c in citations]
+    confidence = sum(scores) / len(scores) if scores else 0.0
+    confidence = max(0.0, min(1.0, confidence))
+
+    return {
+        "answer": raw_answer,
+        "citations": citations,
+        "confidence": confidence
+    }
