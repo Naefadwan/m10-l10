@@ -1,0 +1,78 @@
+name: "Stretch Tue — Auth Layer Autograder"
+on:
+  push:
+    branches: [stretch-tue-auth]
+  pull_request:
+    branches: [main]
+
+jobs:
+  auth:
+    # Stretch Tue extends the Lab repo on branch `stretch-tue-auth`.
+    # The workflow only runs against that branch (push trigger) or PRs
+    # opened from it (pull_request trigger filters via branch head in
+    # GitHub UI). It mirrors the Lab autograder's services block so the
+    # FastAPI lifespan can reach Neo4j + Weaviate during TestClient
+    # exercise.
+    if: github.ref == 'refs/heads/stretch-tue-auth' || github.head_ref == 'stretch-tue-auth'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      neo4j:
+        image: neo4j:5-community
+        env:
+          NEO4J_AUTH: neo4j/testtest
+          NEO4J_dbms_memory_heap_max__size: 1G
+          NEO4J_dbms_memory_pagecache_size: 512M
+        ports:
+          - 7687:7687
+          - 7474:7474
+        options: >-
+          --health-cmd "wget -q -O - http://localhost:7474 || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 24
+      weaviate:
+        image: semitechnologies/weaviate:1.24.10
+        env:
+          QUERY_DEFAULTS_LIMIT: "20"
+          AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
+          DEFAULT_VECTORIZER_MODULE: "none"
+          PERSISTENCE_DATA_PATH: "/var/lib/weaviate"
+        ports:
+          - 8080:8080
+        options: >-
+          --health-cmd "curl -f http://localhost:8080/v1/.well-known/ready"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 24
+    env:
+      NEO4J_URI: bolt://localhost:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: testtest
+      WEAVIATE_URL: http://localhost:8080
+      WEB_ORIGIN: http://localhost:3000
+      # Stretch-specific dev credentials. Real deployments source these
+      # from a secrets manager; the stretch only exercises that the
+      # learner reads them from env (not hardcoded).
+      API_KEY_VALID: "ci-test-api-key"
+      JWT_SECRET: "ci-test-jwt-secret-do-not-use-in-prod-xxxxxxxx"
+      JWT_ALGORITHM: "HS256"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install backend + stretch deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r api/requirements.txt PyYAML
+          # The stretch adds python-jose and passlib. They are required
+          # whether or not the learner remembered to add them to
+          # api/requirements.txt — the autograder installs them so a
+          # missing-requirements bug surfaces as a Task 2 spec failure
+          # ("update api/requirements.txt") rather than a CI ImportError.
+          pip install 'python-jose[cryptography]>=3,<4' 'passlib[bcrypt]>=1.7,<2'
+          python -m spacy download en_core_web_sm
+      - name: Stretch auth autograder
+        run: pytest tests/auth -v --tb=short
