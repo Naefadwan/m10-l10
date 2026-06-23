@@ -169,6 +169,10 @@ def client(store):
     """TestClient against the app with mocked external resources."""
     from api import main as main_module
 
+    os.environ.setdefault("API_KEY_VALID", "ci-test-api-key")
+    os.environ.setdefault("JWT_SECRET", "ci-test-jwt-secret-do-not-use-in-prod-xxxxxxxx")
+    os.environ.setdefault("JWT_ALGORITHM", "HS256")
+
     fake_driver = _FakeDriver(store)
     fake_weaviate = _FakeWeaviateClient(store)
     fake_nlp = _FakeNlp(store)
@@ -186,4 +190,5 @@ def client(store):
 
     main_module.app.router.lifespan_context = _lifespan
     with TestClient(main_module.app) as c:
+        c.headers.update({"X-API-Key": "ci-test-api-key"})
         yield c

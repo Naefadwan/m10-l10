@@ -11,5 +11,4 @@ torch
 pytest
 pytest-asyncio
 python-jose[cryptography]
-passlib[bcrypt]
 pyyaml
