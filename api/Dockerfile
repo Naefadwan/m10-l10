@@ -4,7 +4,8 @@ WORKDIR /app
 
 # Cache dependency install layer — copy requirements before the rest of
 # the source so a code-only change does not re-run pip install.
-
+COPY requirements.txt requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Download the spaCy English model required by /extract.
 RUN python -m spacy download en_core_web_sm
