@@ -109,7 +109,7 @@ app.add_middleware(
 # ---------- /extract -----------------------------------------------------
 
 @app.post("/extract", response_model=ExtractResponse)
-def extract(req: ExtractRequest, nlp=Depends(get_nlp)):
+def extract(req: ExtractRequest, nlp=Depends(get_nlp), claims=Depends(require_auth)):
     """Run spaCy NER on the input text; return entities ordered by `start`.
 
     Returns ExtractResponse with entities sorted by `start` ascending.
@@ -121,7 +121,7 @@ def extract(req: ExtractRequest, nlp=Depends(get_nlp)):
 # ---------- /kg/query ----------------------------------------------------
 
 @app.post("/kg/query", response_model=KGResponse)
-def kg_query(req: KGRequest, session=Depends(get_session)):
+def kg_query(req: KGRequest, session=Depends(get_session), claims=Depends(require_auth)):
     """Run the W9B mapper and execute the resulting Cypher.
 
     Returns KGResponse(cypher=..., rows=[r.data() for r in session.run(...)], count=len(rows)).
@@ -150,7 +150,8 @@ def rag_answer(
     req: RAGRequest,
     weaviate_client=Depends(get_weaviate),
     generator=Depends(get_generator),
-    embedder=Depends(get_embedder)
+    embedder=Depends(get_embedder),
+    claims=Depends(require_auth)
 ):
     """Retrieve → assemble → generate → cite → grounding check.
 
@@ -243,7 +244,7 @@ def auth_login(req: _LoginRequest):
             status_code=401,
             detail="Invalid username or password",
         )
-    token = create_access_token(sub=sub, expires_minutes=30)
+    token = create_access_token(subject=sub, expires_minutes=30)
     return _TokenResponse(access_token=token, token_type="bearer")
 
 

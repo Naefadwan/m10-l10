@@ -1,9 +1,12 @@
 import { useState } from "react";
+import { useRouter } from "next/router";
 import { ExtractResponse } from "../lib/types";
+import { authFetch } from "../lib/api";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export default function ExtractPage() {
+  const router = useRouter();
   const [text, setText] = useState("");
   const [result, setResult] = useState<ExtractResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -12,11 +15,21 @@ export default function ExtractPage() {
     setError(null);
     setResult(null);
     try {
-      const response = await fetch(`${API_URL}/extract`, {
+      const response = await authFetch(`${API_URL}/extract`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text }),
       });
+
+      if (response.status === 401) {
+        router.push("/login");
+        return;
+      }
+
+      if (response.status === 403) {
+        setError("Insufficient scope. Your credential lacks access to this resource.");
+        return;
+      }
 
       if (response.status === 422) {
         const detail = await response.json();

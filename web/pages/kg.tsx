@@ -1,9 +1,12 @@
 import { useState } from "react";
+import { useRouter } from "next/router";
 import { KGResponse } from "../lib/types";
+import { authFetch } from "../lib/api";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export default function KgPage() {
+  const router = useRouter();
   const [question, setQuestion] = useState("");
   const [result, setResult] = useState<KGResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -14,11 +17,21 @@ export default function KgPage() {
     setResult(null);
     setPatterns(null);
     try {
-      const response = await fetch(`${API_URL}/kg/query`, {
+      const response = await authFetch(`${API_URL}/kg/query`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question }),
       });
+
+      if (response.status === 401) {
+        router.push("/login");
+        return;
+      }
+
+      if (response.status === 403) {
+        setError("Insufficient scope. Your credential lacks access to this resource.");
+        return;
+      }
 
       if (response.status === 422) {
         const detail = await response.json();

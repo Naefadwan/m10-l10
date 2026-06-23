@@ -1,9 +1,12 @@
 import { useState } from "react";
+import { useRouter } from "next/router";
 import { RAGResponse } from "../lib/types";
+import { authFetch } from "../lib/api";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export default function RagPage() {
+  const router = useRouter();
   const [question, setQuestion] = useState("");
   const [result, setResult] = useState<RAGResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -14,11 +17,21 @@ export default function RagPage() {
     setResult(null);
     setLoading(true);
     try {
-      const response = await fetch(`${API_URL}/rag/answer`, {
+      const response = await authFetch(`${API_URL}/rag/answer`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question, k: 4 }),
       });
+
+      if (response.status === 401) {
+        router.push("/login");
+        return;
+      }
+
+      if (response.status === 403) {
+        setError("Insufficient scope. Your credential lacks access to this resource.");
+        return;
+      }
 
       if (response.status === 422) {
         const detail = await response.json();
